@@ -37,7 +37,12 @@ public class BacnetDeviceDiscovery {
                 .withReuseAddress(true);
 
         IpNetwork network = builder.build();
-        local = new LocalDevice(234234, new DefaultTransport(network));
+        DefaultTransport transport = new DefaultTransport(network);
+        transport.setTimeout(3000);
+        transport.setRetries(3);
+
+        local = new LocalDevice(234234, transport);
+
         local.initialize();
 
         System.out.println("Local BACnet device initialized on port 47808");
@@ -87,8 +92,8 @@ public class BacnetDeviceDiscovery {
                 ReadPropertyRequest request =
                         new ReadPropertyRequest(deviceOid, propertyId);
 
-                ServiceFuture future =
-                         local.send(
+                ServiceFutureImpl future =
+                        (ServiceFutureImpl)local.send(
                                 d,
                                 request
                         );
