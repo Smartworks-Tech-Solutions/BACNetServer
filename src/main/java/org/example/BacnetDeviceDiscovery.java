@@ -20,19 +20,23 @@ import com.serotonin.bacnet4j.type.enumerated.PropertyIdentifier;
 import com.serotonin.bacnet4j.type.primitive.ObjectIdentifier;
 import com.serotonin.bacnet4j.type.primitive.OctetString;
 import com.serotonin.bacnet4j.service.unconfirmed.WhoIsRequest;
+import com.serotonin.bacnet4j.type.primitive.UnsignedInteger;
 
 import java.net.InetAddress;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 public class BacnetDeviceDiscovery {
 
     private LocalDevice local;
-
+    private final ExecutorService worker =
+            Executors.newSingleThreadExecutor();
     public void start() throws Exception {
         IpNetworkBuilder builder = new IpNetworkBuilder()
                 .withLocalBindAddress("0.0.0.0")  // listen on all NICs
-                .withSubnet("192.168.1.0", 32)  // Single host subnet for WAN connections
+                .withSubnet("192.168.1.0", 24)  // Single host subnet for WAN connections
                 .withPort(47808)
                 .withReuseAddress(true);
 
@@ -46,7 +50,69 @@ public class BacnetDeviceDiscovery {
         local.initialize();
 
         System.out.println("Local BACnet device initialized on port 47808");
+
     }
+
+
+
+    private void readObjectListSafe(RemoteDevice d) {
+        try {
+            ObjectIdentifier deviceOid =
+                    new ObjectIdentifier(
+                            ObjectType.device,
+                            d.getInstanceNumber()
+                    );
+
+            // ---- read size ----
+            ReadPropertyRequest sizeReq =
+                    new ReadPropertyRequest(
+                            deviceOid,
+                            PropertyIdentifier.objectList,
+                            UnsignedInteger.ZERO
+                    );
+
+            ServiceFuture future = local.send(d, sizeReq);
+            ReadPropertyAck sizeAck = future.get();
+
+            int size =
+                    ((UnsignedInteger) sizeAck.getValue()).intValue();
+
+            System.out.println("Object count: " + size);
+
+            // ---- read elements ----
+            for (int i = 1; i <= size; i++) {
+                try {
+                    ReadPropertyRequest itemReq =
+                            new ReadPropertyRequest(
+                                    deviceOid,
+                                    PropertyIdentifier.objectList,
+                                    new UnsignedInteger(i)
+                            );
+
+                    ReadPropertyAck itemAck =
+                            local.send(d, itemReq).get();
+
+                    ObjectIdentifier oid =
+                            (ObjectIdentifier) itemAck.getValue();
+
+                    System.out.println("Object: " + oid);
+
+                } catch (BACnetException e) {
+                    System.err.println(
+                            "Failed object-list[" + i + "]"
+                    );
+                }
+            }
+
+        } catch (BACnetException e) {
+            System.err.println(
+                    "Object-list failed for device "
+                            + d.getInstanceNumber()
+            );
+        }
+    }
+
+
 
     /**
      * Discover all BACnet devices at a specific IP address
@@ -59,6 +125,11 @@ public class BacnetDeviceDiscovery {
         CountDownLatch latch = new CountDownLatch(1);
 
         // Add listener to capture I-Am responses
+
+
+
+
+
         DeviceEventAdapter listener = new DeviceEventAdapter() {
             @Override
             public void iAmReceived(RemoteDevice d) {
@@ -84,35 +155,11 @@ public class BacnetDeviceDiscovery {
 
                 System.out.println("└─────────────────────────────────────────────\n");
 
-                ObjectIdentifier deviceOid =
-                        new ObjectIdentifier(ObjectType.device, d.getInstanceNumber());
+                // ✅ NEVER BLOCK HERE
+                latch.countDown();
 
-                PropertyIdentifier propertyId = PropertyIdentifier.objectList;
-
-                ReadPropertyRequest request =
-                        new ReadPropertyRequest(deviceOid, propertyId);
-
-                ServiceFutureImpl future =
-                        (ServiceFutureImpl)local.send(
-                                d,
-                                request
-                        );
-
-                ReadPropertyAck ack =
-                        null;
-                try {
-                    ack = future.get();
-                } catch (BACnetException e) {
-                    throw new RuntimeException(e);
-                }
-
-                @SuppressWarnings("unchecked")
-                SequenceOf<ObjectIdentifier> objectList =
-                        (SequenceOf<ObjectIdentifier>) ack.getValue();
-
-                for (ObjectIdentifier oid : objectList) {
-                    System.out.println("Object: " + oid);
-                }
+                // ✅ THIS is where readObjectListSafe is used
+                worker.submit(() -> readObjectListSafe(d));
             }
         };
 
@@ -202,6 +249,7 @@ public class BacnetDeviceDiscovery {
     }
 
     public void shutdown() {
+        worker.shutdownNow();
         if (local != null) {
             local.terminate();
         }
@@ -221,11 +269,11 @@ public class BacnetDeviceDiscovery {
             discovery.discoverDevicesAt(gatewayIp, port);
 
             // Method 2: If no response, try brute force search
-            if (discovery.local.getRemoteDevices().isEmpty()) {
+            /*if (discovery.local.getRemoteDevices().isEmpty()) {
                 System.out.println("\nNo response to general WHO-IS.");
                 System.out.println("Attempting targeted range search...");
                 discovery.bruteForceDeviceId(gatewayIp, port);
-            }
+            }*/
 
             // Keep running to receive any late responses
             Thread.sleep(5000);
