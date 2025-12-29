@@ -3,13 +3,16 @@ package org.example;
 
 import com.serotonin.bacnet4j.LocalDevice;
 import com.serotonin.bacnet4j.RemoteDevice;
+import com.serotonin.bacnet4j.ServiceFuture;
 import com.serotonin.bacnet4j.event.DeviceEventAdapter;
+import com.serotonin.bacnet4j.exception.BACnetException;
 import com.serotonin.bacnet4j.npdu.ip.IpNetwork;
 import com.serotonin.bacnet4j.npdu.ip.IpNetworkBuilder;
 import com.serotonin.bacnet4j.npdu.ip.IpNetworkUtils;
 import com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyAck;
 import com.serotonin.bacnet4j.service.confirmed.ReadPropertyRequest;
 import com.serotonin.bacnet4j.transport.DefaultTransport;
+import com.serotonin.bacnet4j.transport.ServiceFutureImpl;
 import com.serotonin.bacnet4j.type.constructed.Address;
 import com.serotonin.bacnet4j.type.constructed.SequenceOf;
 import com.serotonin.bacnet4j.type.enumerated.ObjectType;
@@ -84,11 +87,19 @@ public class BacnetDeviceDiscovery {
                 ReadPropertyRequest request =
                         new ReadPropertyRequest(deviceOid, propertyId);
 
-                ReadPropertyAck ack =
-                        (ReadPropertyAck) local.send(
+                ServiceFuture future =
+                         local.send(
                                 d,
                                 request
                         );
+
+                ReadPropertyAck ack =
+                        null;
+                try {
+                    ack = future.get();
+                } catch (BACnetException e) {
+                    throw new RuntimeException(e);
+                }
 
                 @SuppressWarnings("unchecked")
                 SequenceOf<ObjectIdentifier> objectList =
