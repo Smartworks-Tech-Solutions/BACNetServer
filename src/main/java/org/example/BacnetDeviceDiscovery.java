@@ -7,8 +7,14 @@ import com.serotonin.bacnet4j.event.DeviceEventAdapter;
 import com.serotonin.bacnet4j.npdu.ip.IpNetwork;
 import com.serotonin.bacnet4j.npdu.ip.IpNetworkBuilder;
 import com.serotonin.bacnet4j.npdu.ip.IpNetworkUtils;
+import com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyAck;
+import com.serotonin.bacnet4j.service.confirmed.ReadPropertyRequest;
 import com.serotonin.bacnet4j.transport.DefaultTransport;
 import com.serotonin.bacnet4j.type.constructed.Address;
+import com.serotonin.bacnet4j.type.constructed.SequenceOf;
+import com.serotonin.bacnet4j.type.enumerated.ObjectType;
+import com.serotonin.bacnet4j.type.enumerated.PropertyIdentifier;
+import com.serotonin.bacnet4j.type.primitive.ObjectIdentifier;
 import com.serotonin.bacnet4j.type.primitive.OctetString;
 import com.serotonin.bacnet4j.service.unconfirmed.WhoIsRequest;
 
@@ -23,7 +29,7 @@ public class BacnetDeviceDiscovery {
     public void start() throws Exception {
         IpNetworkBuilder builder = new IpNetworkBuilder()
                 .withLocalBindAddress("0.0.0.0")  // listen on all NICs
-                .withSubnet("255.255.255.0", 32)  // Single host subnet for WAN connections
+                .withSubnet("192.168.1.0", 32)  // Single host subnet for WAN connections
                 .withPort(47808)
                 .withReuseAddress(true);
 
@@ -69,6 +75,28 @@ public class BacnetDeviceDiscovery {
                 }
 
                 System.out.println("└─────────────────────────────────────────────\n");
+
+                ObjectIdentifier deviceOid =
+                        new ObjectIdentifier(ObjectType.device, d.getInstanceNumber());
+
+                PropertyIdentifier propertyId = PropertyIdentifier.objectList;
+
+                ReadPropertyRequest request =
+                        new ReadPropertyRequest(deviceOid, propertyId);
+
+                ReadPropertyAck ack =
+                        (ReadPropertyAck) local.send(
+                                d,
+                                request
+                        );
+
+                @SuppressWarnings("unchecked")
+                SequenceOf<ObjectIdentifier> objectList =
+                        (SequenceOf<ObjectIdentifier>) ack.getValue();
+
+                for (ObjectIdentifier oid : objectList) {
+                    System.out.println("Object: " + oid);
+                }
             }
         };
 
@@ -170,7 +198,7 @@ public class BacnetDeviceDiscovery {
             discovery.start();
 
             // Replace with your gateway's public IP
-            String gatewayIp = "38.10.108.156";
+            String gatewayIp = "192.168.1.10";
             int port = 47808;
 
             // Method 1: Simple discovery (sends WHO-IS to all devices)
