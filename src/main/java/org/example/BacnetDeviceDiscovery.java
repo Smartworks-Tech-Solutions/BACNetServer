@@ -276,7 +276,7 @@ public class BacnetDeviceDiscovery {
             }*/
 
             // Keep running to receive any late responses
-            Thread.sleep(5000);
+            Thread.sleep(50000);
 
         } catch (Exception e) {
             e.printStackTrace();
