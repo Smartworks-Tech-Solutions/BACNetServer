@@ -98,6 +98,7 @@ public class BacnetDeviceDiscovery {
                     System.out.println("Object: " + oid);
 
                 } catch (BACnetException e) {
+                    e.printStackTrace();
                     System.err.println(
                             "Failed object-list[" + i + "]"
                     );
@@ -105,6 +106,7 @@ public class BacnetDeviceDiscovery {
             }
 
         } catch (BACnetException e) {
+            e.printStackTrace();
             System.err.println(
                     "Object-list failed for device "
                             + d.getInstanceNumber()
