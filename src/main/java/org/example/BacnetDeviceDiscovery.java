@@ -13,14 +13,17 @@ import com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyAck;
 import com.serotonin.bacnet4j.service.confirmed.ReadPropertyRequest;
 import com.serotonin.bacnet4j.transport.DefaultTransport;
 import com.serotonin.bacnet4j.type.constructed.Address;
+import com.serotonin.bacnet4j.type.constructed.SequenceOf;
 import com.serotonin.bacnet4j.type.enumerated.ObjectType;
 import com.serotonin.bacnet4j.type.enumerated.PropertyIdentifier;
 import com.serotonin.bacnet4j.type.primitive.ObjectIdentifier;
 import com.serotonin.bacnet4j.type.primitive.OctetString;
 import com.serotonin.bacnet4j.service.unconfirmed.WhoIsRequest;
 import com.serotonin.bacnet4j.type.primitive.UnsignedInteger;
+import com.serotonin.bacnet4j.util.RequestUtils;
 
 import java.net.InetAddress;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,10 +43,14 @@ public class BacnetDeviceDiscovery {
 
         IpNetwork network = builder.build();
         DefaultTransport transport = new DefaultTransport(network);
-        transport.setTimeout(3000);
+        transport.setTimeout(15000);
+
         transport.setRetries(3);
+        transport.setSegTimeout(5000);
+        transport.setSegWindow(10);
 
         local = new LocalDevice(234234, transport);
+
 
         local.initialize();
 
@@ -51,6 +58,37 @@ public class BacnetDeviceDiscovery {
 
     }
 
+
+
+    private void readObjectListSafeAnthropic(RemoteDevice d) {
+        try {
+            System.out.println(
+                    "Reading object-list from device "
+                            + d.getInstanceNumber()
+                            + " (Segmentation: " + d.getSegmentationSupported() + ") "
+                            + " (MaxAPDU=" + d.getMaxAPDULengthAccepted() + ")"
+            );
+
+            // Use RequestUtils which handles segmentation automatically
+            SequenceOf<ObjectIdentifier> objectList =
+                    RequestUtils.getObjectList(local, d);
+
+            System.out.println("Total objects: " + objectList.size());
+
+            int i = 1;
+            for (ObjectIdentifier oid : objectList) {
+                System.out.println("  [" + i++ + "] " + oid);
+            }
+
+            System.out.println("Object-list complete!");
+
+        } catch (BACnetException e) {
+            System.err.println(
+                    "Object-list FAILED for device " + d.getInstanceNumber()
+            );
+            e.printStackTrace();
+        }
+    }
 
 
     private void readObjectListSafe(RemoteDevice d) {
@@ -181,7 +219,7 @@ public class BacnetDeviceDiscovery {
                 latch.countDown();
 
                 // ✅ THIS is where readObjectListSafe is used
-                worker.submit(() -> readObjectListSafe(d));
+                worker.submit(() -> readObjectListSafeAnthropic(d));
             }
         };
 
