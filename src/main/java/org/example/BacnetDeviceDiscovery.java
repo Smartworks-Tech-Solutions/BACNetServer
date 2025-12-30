@@ -10,10 +10,11 @@ import com.serotonin.bacnet4j.npdu.ip.IpNetwork;
 import com.serotonin.bacnet4j.npdu.ip.IpNetworkBuilder;
 import com.serotonin.bacnet4j.npdu.ip.IpNetworkUtils;
 import com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyAck;
+import com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyMultipleAck;
+import com.serotonin.bacnet4j.service.confirmed.ReadPropertyMultipleRequest;
 import com.serotonin.bacnet4j.service.confirmed.ReadPropertyRequest;
 import com.serotonin.bacnet4j.transport.DefaultTransport;
-import com.serotonin.bacnet4j.type.constructed.Address;
-import com.serotonin.bacnet4j.type.constructed.SequenceOf;
+import com.serotonin.bacnet4j.type.constructed.*;
 import com.serotonin.bacnet4j.type.enumerated.ObjectType;
 import com.serotonin.bacnet4j.type.enumerated.PropertyIdentifier;
 import com.serotonin.bacnet4j.type.primitive.ObjectIdentifier;
@@ -61,31 +62,175 @@ public class BacnetDeviceDiscovery {
 
 
     private void readObjectListSafeAnthropic(RemoteDevice d) {
+        System.out.println(
+                "Reading object-list from device "
+                        + d.getInstanceNumber()
+                        + " (Segmentation: " + d.getSegmentationSupported() + ") "
+                        + " (MaxAPDU=" + d.getMaxAPDULengthAccepted() + ")"
+        );
+
+        // Strategy 1: Try RequestUtils first
         try {
-            System.out.println(
-                    "Reading object-list from device "
-                            + d.getInstanceNumber()
-                            + " (Segmentation: " + d.getSegmentationSupported() + ") "
-                            + " (MaxAPDU=" + d.getMaxAPDULengthAccepted() + ")"
-            );
+            System.out.println("Strategy 1: Using RequestUtils.getObjectList()...");
+            SequenceOf<ObjectIdentifier> objectList = RequestUtils.getObjectList(local, d);
 
-            // Use RequestUtils which handles segmentation automatically
-            SequenceOf<ObjectIdentifier> objectList =
-                    RequestUtils.getObjectList(local, d);
-
-            System.out.println("Total objects: " + objectList.size());
-
+            System.out.println("✓ Success! Total objects: " + objectList.size());
             int i = 1;
             for (ObjectIdentifier oid : objectList) {
                 System.out.println("  [" + i++ + "] " + oid);
             }
-
             System.out.println("Object-list complete!");
+            return; // Success!
 
         } catch (BACnetException e) {
-            System.err.println(
-                    "Object-list FAILED for device " + d.getInstanceNumber()
+            System.err.println("Strategy 1 failed: " + e.getMessage());
+        }
+
+        // Strategy 2: Try reading entire property at once
+        try {
+            System.out.println("Strategy 2: Reading entire objectList property...");
+
+            ObjectIdentifier deviceOid = new ObjectIdentifier(
+                    ObjectType.device,
+                    d.getInstanceNumber()
             );
+
+            ReadPropertyRequest req = new ReadPropertyRequest(
+                    deviceOid,
+                    PropertyIdentifier.objectList
+                    // No index = read entire property
+            );
+
+            ServiceFuture future = local.send(d, req);
+            ReadPropertyAck ack = (ReadPropertyAck) future.get(); // 30 second timeout
+
+            @SuppressWarnings("unchecked")
+            SequenceOf<ObjectIdentifier> list = (SequenceOf<ObjectIdentifier>) ack.getValue();
+
+            System.out.println("✓ Success! Total objects: " + list.getCount());
+            for (int i = 1; i <= list.getCount(); i++) {
+                ObjectIdentifier oid = list.getBase1(i);
+                System.out.println("  [" + i + "] " + oid);
+            }
+            System.out.println("Object-list complete!");
+            return; // Success!
+
+        } catch (Exception e) {
+            System.err.println("Strategy 2 failed: " + e.getMessage());
+        }
+
+        // Strategy 3: Try reading with ReadPropertyMultiple
+        try {
+            System.out.println("Strategy 3: Using ReadPropertyMultiple...");
+
+            ObjectIdentifier deviceOid = new ObjectIdentifier(
+                    ObjectType.device,
+                    d.getInstanceNumber()
+            );
+
+            // Read multiple properties at once (sometimes works better)
+            ReadPropertyMultipleRequest rpm =
+                    new ReadPropertyMultipleRequest(
+                            new SequenceOf<>(
+                                    new ReadAccessSpecification(
+                                            deviceOid,
+                                            new SequenceOf<>(
+                                                    new PropertyReference(
+                                                            PropertyIdentifier.objectList
+                                                    )
+                                            )
+                                    )
+                            )
+                    );
+
+            ServiceFuture future = local.send(d, rpm);
+            ReadPropertyMultipleAck rpmAck =
+                    (com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyMultipleAck) future.get();
+
+            // Extract object list from response
+            ReadAccessResult result =
+                    rpmAck.getListOfReadAccessResults().getBase1(1);
+
+            @SuppressWarnings("unchecked")
+            SequenceOf<ObjectIdentifier> list = (SequenceOf<ObjectIdentifier>)
+                    result.getListOfResults().getBase1(1).getReadResult().getDatum();
+
+            System.out.println("✓ Success! Total objects: " + list.getCount());
+            for (int i = 1; i <= list.getCount(); i++) {
+                ObjectIdentifier oid = list.getBase1(i);
+                System.out.println("  [" + i + "] " + oid);
+            }
+            System.out.println("Object-list complete!");
+            return; // Success!
+
+        } catch (Exception e) {
+            System.err.println("Strategy 3 failed: " + e.getMessage());
+        }
+
+        // Strategy 4: Fall back to index-by-index reading (slow but reliable)
+        try {
+            System.out.println("Strategy 4: Reading array index-by-index (slow method)...");
+
+            ObjectIdentifier deviceOid = new ObjectIdentifier(
+                    ObjectType.device,
+                    d.getInstanceNumber()
+            );
+
+            // First, try to get the size
+            ReadPropertyRequest sizeReq = new ReadPropertyRequest(
+                    deviceOid,
+                    PropertyIdentifier.objectList,
+                    UnsignedInteger.ZERO
+            );
+
+            int size;
+            try {
+                ReadPropertyAck sizeAck = local.send(d, sizeReq).get();
+                size = ((UnsignedInteger) sizeAck.getValue()).intValue();
+                System.out.println("Array size: " + size);
+            } catch (Exception e) {
+                // If we can't get size, try a reasonable default
+                System.out.println("Cannot get array size, trying first 500 indices...");
+                size = 500;
+            }
+
+            int success = 0;
+            int consecutiveFails = 0;
+
+            for (int i = 1; i <= size; i++) {
+                try {
+                    ReadPropertyRequest itemReq = new ReadPropertyRequest(
+                            deviceOid,
+                            PropertyIdentifier.objectList,
+                            new UnsignedInteger(i)
+                    );
+
+                    ReadPropertyAck itemAck = local.send(d, itemReq).get();
+                    ObjectIdentifier oid = (ObjectIdentifier) itemAck.getValue();
+
+                    System.out.println("  [" + i + "] " + oid);
+                    success++;
+                    consecutiveFails = 0;
+
+                } catch (Exception e) {
+                    consecutiveFails++;
+                    System.err.println("  [" + i + "] failed");
+
+                    // If we get 10 consecutive failures, probably reached the end
+                    if (consecutiveFails >= 10) {
+                        System.out.println("Stopping after 10 consecutive failures");
+                        break;
+                    }
+                }
+
+                Thread.sleep(100); // Rate limiting
+            }
+
+            System.out.println("Object-list complete (partial): " + success + " objects found");
+
+        } catch (Exception e) {
+            System.err.println("Strategy 4 failed: " + e.getMessage());
+            System.err.println("All strategies failed for device " + d.getInstanceNumber());
             e.printStackTrace();
         }
     }
@@ -243,7 +388,7 @@ public class BacnetDeviceDiscovery {
             latch.await(10, TimeUnit.SECONDS);
 
             // Check if any devices were found
-            if (local.getRemoteDevices().isEmpty()) {
+            /*if (local.getRemoteDevices().isEmpty()) {
                 System.out.println("❌ No devices responded.");
                 System.out.println("\nPossible reasons:");
                 System.out.println("1. Firewall blocking UDP port " + remotePort);
@@ -254,7 +399,7 @@ public class BacnetDeviceDiscovery {
             } else {
                 System.out.println("✓ Discovery complete. Found " +
                         local.getRemoteDevices().size() + " device(s)");
-            }
+            }*/
 
         } finally {
             local.getEventHandler().removeListener(listener);
