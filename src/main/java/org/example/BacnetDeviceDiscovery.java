@@ -60,6 +60,48 @@ public class BacnetDeviceDiscovery {
     }
 
 
+    private void enumerateByType(RemoteDevice d) {
+
+        ObjectType[] types = {
+                ObjectType.analogInput,
+                ObjectType.analogOutput,
+                ObjectType.analogValue,
+                ObjectType.binaryInput,
+                ObjectType.binaryOutput,
+                ObjectType.binaryValue,
+                ObjectType.multiStateInput,
+                ObjectType.multiStateOutput,
+                ObjectType.multiStateValue
+        };
+
+        int maxInstance = 10000; // realistic for large systems
+
+        for (ObjectType type : types) {
+            for (int i = 0; i < maxInstance; i++) {
+                try {
+                    ObjectIdentifier oid =
+                            new ObjectIdentifier(type, i);
+
+                    ReadPropertyRequest req =
+                            new ReadPropertyRequest(
+                                    oid,
+                                    PropertyIdentifier.objectName
+                            );
+
+                    ReadPropertyAck ack =
+                            local.send(d, req).get();
+
+                    System.out.println("FOUND: " + oid);
+
+                    Thread.sleep(50); // RATE LIMIT
+
+                } catch (BACnetException e) {
+                    // object does not exist → ignore
+                } catch (InterruptedException ignored) {}
+            }
+        }
+    }
+
 
     private void readObjectListSafeAnthropic(RemoteDevice d) {
         System.out.println(
@@ -364,7 +406,7 @@ public class BacnetDeviceDiscovery {
                 latch.countDown();
 
                 // ✅ THIS is where readObjectListSafe is used
-                worker.submit(() -> readObjectListSafeAnthropic(d));
+                worker.submit(() -> enumerateByType(d));
             }
         };
 
