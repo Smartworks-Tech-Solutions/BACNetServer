@@ -435,7 +435,7 @@ public class BacnetDeviceDiscovery {
                             subscribeToObjects(d);
                             //diagnoseDevice(d);
                             //readObjectListSafeAnthropic(d);
-                            readObjectListSafe(d);
+                            //readObjectListSafe(d);
                         }
                 );
             }
