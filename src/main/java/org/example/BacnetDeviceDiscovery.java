@@ -14,12 +14,15 @@ import com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyMultipleAck;
 import com.serotonin.bacnet4j.service.confirmed.ReadPropertyMultipleRequest;
 import com.serotonin.bacnet4j.service.confirmed.ReadPropertyRequest;
 import com.serotonin.bacnet4j.transport.DefaultTransport;
+import com.serotonin.bacnet4j.type.Encodable;
 import com.serotonin.bacnet4j.type.constructed.*;
+import com.serotonin.bacnet4j.type.enumerated.BinaryPV;
 import com.serotonin.bacnet4j.type.enumerated.ObjectType;
 import com.serotonin.bacnet4j.type.enumerated.PropertyIdentifier;
 import com.serotonin.bacnet4j.type.primitive.ObjectIdentifier;
 import com.serotonin.bacnet4j.type.primitive.OctetString;
 import com.serotonin.bacnet4j.service.unconfirmed.WhoIsRequest;
+import com.serotonin.bacnet4j.type.primitive.Real;
 import com.serotonin.bacnet4j.type.primitive.UnsignedInteger;
 import com.serotonin.bacnet4j.util.RequestUtils;
 
@@ -347,6 +350,41 @@ public class BacnetDeviceDiscovery {
 
 
 
+    public void readProperty(RemoteDevice device, ObjectIdentifier objectId, PropertyIdentifier propertyId) {
+        try {
+            ReadPropertyRequest request = new ReadPropertyRequest(
+                    objectId,
+                    propertyId
+            );
+
+            ReadPropertyAck response = local.send(device, request).get();
+
+            // Get the value
+            Encodable value = response.getValue();
+
+            System.out.println("Property " + propertyId + " = " + value);
+
+            // Cast to specific type if needed
+            if (propertyId.equals(PropertyIdentifier.presentValue)) {
+                // For analog values
+                if (value instanceof Real) {
+                    float floatValue = ((Real) value).floatValue();
+                    System.out.println("Float value: " + floatValue);
+                }
+                // For binary values
+                else if (value instanceof BinaryPV binaryValue) {
+                    System.out.println("Binary value: " + binaryValue);
+                }
+            }
+
+        } catch (BACnetException e) {
+            System.err.println("Failed to read property: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+
+
 
     /**
      * Discover all BACnet devices at a specific IP address
@@ -395,7 +433,9 @@ public class BacnetDeviceDiscovery {
                 // ✅ THIS is where readObjectListSafe is used
                 //worker.submit(() -> enumerateByType(d));
                 worker.submit(() -> {
-                            diagnoseDevice(d);
+                            ObjectIdentifier analogInput = new ObjectIdentifier(ObjectType.analogInput, 9);
+                            readProperty(d, analogInput, PropertyIdentifier.presentValue);
+                            //diagnoseDevice(d);
                             //readObjectListSafeAnthropic(d);
                         }
                 );
