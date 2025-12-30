@@ -636,6 +636,7 @@ public class BacnetDeviceDiscovery {
         ObjectIdentifier[] objectsToMonitor = {
                 new ObjectIdentifier(ObjectType.analogInput, 9),
                 new ObjectIdentifier(ObjectType.analogInput, 6409),
+                new ObjectIdentifier(ObjectType.analogInput, 6410),
                 new ObjectIdentifier(ObjectType.analogValue, 10)
                 /*new ObjectIdentifier(ObjectType.binaryOutput, 1)
                 new ObjectIdentifier(ObjectType.analogValue, 1)*/
