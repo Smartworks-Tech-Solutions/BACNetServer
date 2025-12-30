@@ -430,7 +430,7 @@ public class BacnetDeviceDiscovery {
                 // ✅ THIS is where readObjectListSafe is used
                 //worker.submit(() -> enumerateByType(d));
                 worker.submit(() -> {
-                            ObjectIdentifier analogInput = new ObjectIdentifier(ObjectType.analogInput, 9);
+                            ObjectIdentifier analogInput = new ObjectIdentifier(ObjectType.analogInput, 6409);
                             readProperty(d, analogInput, PropertyIdentifier.presentValue);
                             subscribeToObjects(d);
                             //diagnoseDevice(d);
@@ -635,6 +635,7 @@ public class BacnetDeviceDiscovery {
         // Subscribe to multiple objects
         ObjectIdentifier[] objectsToMonitor = {
                 new ObjectIdentifier(ObjectType.analogInput, 9),
+                new ObjectIdentifier(ObjectType.analogInput, 6409),
                 new ObjectIdentifier(ObjectType.analogValue, 10)
                 /*new ObjectIdentifier(ObjectType.binaryOutput, 1)
                 new ObjectIdentifier(ObjectType.analogValue, 1)*/
