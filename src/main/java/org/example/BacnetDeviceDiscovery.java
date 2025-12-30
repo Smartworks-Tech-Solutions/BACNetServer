@@ -38,7 +38,7 @@ public class BacnetDeviceDiscovery {
             Executors.newSingleThreadExecutor();
     public void start() throws Exception {
         IpNetworkBuilder builder = new IpNetworkBuilder()
-                .withLocalBindAddress("0.0.0.0")  // listen on all NICs
+                .withLocalBindAddress("192.168.1.191")  // listen on all NICs
                 .withSubnet("255.255.255.0", 24)  // Single host subnet for WAN connections
                 .withPort(47808)
                 .withReuseAddress(true);
