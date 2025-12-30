@@ -406,7 +406,8 @@ public class BacnetDeviceDiscovery {
                 latch.countDown();
 
                 // ✅ THIS is where readObjectListSafe is used
-                worker.submit(() -> enumerateByType(d));
+                //worker.submit(() -> enumerateByType(d));
+                worker.submit(() -> readObjectListSafeAnthropic(d));
             }
         };
 
