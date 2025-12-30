@@ -397,11 +397,6 @@ public class BacnetDeviceDiscovery {
         CountDownLatch latch = new CountDownLatch(1);
 
         // Add listener to capture I-Am responses
-
-
-
-
-
         DeviceEventAdapter listener = new DeviceEventAdapter() {
             @Override
             public void iAmReceived(RemoteDevice d) {
@@ -437,6 +432,7 @@ public class BacnetDeviceDiscovery {
                             readProperty(d, analogInput, PropertyIdentifier.presentValue);
                             //diagnoseDevice(d);
                             //readObjectListSafeAnthropic(d);
+                            readObjectListSafe(d);
                         }
                 );
             }
