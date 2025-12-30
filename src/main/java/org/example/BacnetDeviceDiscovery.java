@@ -611,20 +611,7 @@ public class BacnetDeviceDiscovery {
                         System.out.println("    → Status: " + value);
                     }
                 }
-
                 System.out.println("========================\n");
-
-                // If you need to get the RemoteDevice object
-                try {
-                    RemoteDevice device = local.getRemoteDevice(
-                            initiatingDeviceIdentifier.getInstanceNumber()
-                    ).get();
-                    if (device != null) {
-                        System.out.println("Device Name: " + device.getName());
-                    }
-                } catch (Exception e) {
-                    // Device might not be in cache
-                }
             }
         };
 
@@ -634,12 +621,12 @@ public class BacnetDeviceDiscovery {
     public void subscribeToObjects(RemoteDevice device) {
         // Subscribe to multiple objects
         ObjectIdentifier[] objectsToMonitor = {
-                //new ObjectIdentifier(ObjectType.analogInput, 9),
-                //new ObjectIdentifier(ObjectType.analogInput, 6409),
-                //new ObjectIdentifier(ObjectType.analogInput, 6410),
+                new ObjectIdentifier(ObjectType.analogInput, 9),
+                new ObjectIdentifier(ObjectType.analogInput, 6409),
+                new ObjectIdentifier(ObjectType.analogInput, 6410),
                 new ObjectIdentifier(ObjectType.binaryInput, 6402),
                 new ObjectIdentifier(ObjectType.binaryInput, 6401),
-                //new ObjectIdentifier(ObjectType.analogValue, 10)
+                new ObjectIdentifier(ObjectType.analogValue, 10)
                 /*new ObjectIdentifier(ObjectType.binaryOutput, 1)
                 new ObjectIdentifier(ObjectType.analogValue, 1)*/
         };
@@ -653,7 +640,7 @@ public class BacnetDeviceDiscovery {
                         Boolean.valueOf(true),      // confirmed notifications
                         new UnsignedInteger(0)  // lifetime: 0 = infinite
                 );
-
+                System.out.println("✓ Subscribing to " + oid);
                 local.send(device, covRequest).get();
                 System.out.println("✓ Subscribed to " + oid);
 
