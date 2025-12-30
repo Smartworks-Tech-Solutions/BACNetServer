@@ -65,7 +65,7 @@ public class BacnetDeviceDiscovery {
             System.out.println(
                     "Reading object-list from device "
                             + d.getInstanceNumber()
-                            + " (Segmentation Supported : ") + d.getSegmentationSupported() + ") "+
+                            + " (Segmentation Supported : " + d.getSegmentationSupported() + ") "
                             + " (MaxAPDU=" + d.getMaxAPDULengthAccepted() + ")"
             );
 
