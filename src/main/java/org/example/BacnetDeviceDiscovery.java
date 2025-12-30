@@ -3,15 +3,12 @@ package org.example;
 
 import com.serotonin.bacnet4j.LocalDevice;
 import com.serotonin.bacnet4j.RemoteDevice;
-import com.serotonin.bacnet4j.ServiceFuture;
 import com.serotonin.bacnet4j.event.DeviceEventAdapter;
 import com.serotonin.bacnet4j.exception.BACnetException;
 import com.serotonin.bacnet4j.npdu.ip.IpNetwork;
 import com.serotonin.bacnet4j.npdu.ip.IpNetworkBuilder;
 import com.serotonin.bacnet4j.npdu.ip.IpNetworkUtils;
 import com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyAck;
-import com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyMultipleAck;
-import com.serotonin.bacnet4j.service.confirmed.ReadPropertyMultipleRequest;
 import com.serotonin.bacnet4j.service.confirmed.ReadPropertyRequest;
 import com.serotonin.bacnet4j.service.confirmed.SubscribeCOVRequest;
 import com.serotonin.bacnet4j.transport.DefaultTransport;
@@ -26,7 +23,6 @@ import com.serotonin.bacnet4j.type.primitive.OctetString;
 import com.serotonin.bacnet4j.service.unconfirmed.WhoIsRequest;
 import com.serotonin.bacnet4j.type.primitive.Real;
 import com.serotonin.bacnet4j.type.primitive.UnsignedInteger;
-import com.serotonin.bacnet4j.util.RequestUtils;
 
 import java.net.InetAddress;
 import java.util.ArrayList;
