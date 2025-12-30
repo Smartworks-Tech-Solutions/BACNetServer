@@ -13,12 +13,14 @@ import com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyAck;
 import com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyMultipleAck;
 import com.serotonin.bacnet4j.service.confirmed.ReadPropertyMultipleRequest;
 import com.serotonin.bacnet4j.service.confirmed.ReadPropertyRequest;
+import com.serotonin.bacnet4j.service.confirmed.SubscribeCOVRequest;
 import com.serotonin.bacnet4j.transport.DefaultTransport;
 import com.serotonin.bacnet4j.type.Encodable;
 import com.serotonin.bacnet4j.type.constructed.*;
 import com.serotonin.bacnet4j.type.enumerated.BinaryPV;
 import com.serotonin.bacnet4j.type.enumerated.ObjectType;
 import com.serotonin.bacnet4j.type.enumerated.PropertyIdentifier;
+import com.serotonin.bacnet4j.type.primitive.Boolean;
 import com.serotonin.bacnet4j.type.primitive.ObjectIdentifier;
 import com.serotonin.bacnet4j.type.primitive.OctetString;
 import com.serotonin.bacnet4j.service.unconfirmed.WhoIsRequest;
@@ -430,6 +432,7 @@ public class BacnetDeviceDiscovery {
                 worker.submit(() -> {
                             ObjectIdentifier analogInput = new ObjectIdentifier(ObjectType.analogInput, 9);
                             readProperty(d, analogInput, PropertyIdentifier.presentValue);
+                            subscribeToObjects(d);
                             //diagnoseDevice(d);
                             //readObjectListSafeAnthropic(d);
                             readObjectListSafe(d);
@@ -533,13 +536,14 @@ public class BacnetDeviceDiscovery {
     public static void main(String[] args) {
         BacnetDeviceDiscovery discovery = new BacnetDeviceDiscovery();
 
+
         try {
             discovery.start();
 
             // Replace with your gateway's public IP
             String gatewayIp = "192.168.1.10";
             int port = 47808;
-
+            discovery.setupCOVListener();
             // Method 1: Simple discovery (sends WHO-IS to all devices)
             discovery.discoverDevicesAt(gatewayIp, port);
 
@@ -551,12 +555,107 @@ public class BacnetDeviceDiscovery {
             }*/
 
             // Keep running to receive any late responses
-            Thread.sleep(500000);
+            System.out.println("Listening for COV notifications... Press Ctrl+C to exit");
+            Thread.sleep(Long.MAX_VALUE);
 
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
             discovery.shutdown();
+        }
+    }
+
+
+    public void setupCOVListener() {
+        DeviceEventAdapter listener = new DeviceEventAdapter() {
+            @Override
+            public void covNotificationReceived(
+                    UnsignedInteger subscriberProcessIdentifier,
+                    ObjectIdentifier initiatingDeviceIdentifier,  // This is the device ObjectIdentifier, not RemoteDevice
+                    ObjectIdentifier monitoredObjectIdentifier,
+                    UnsignedInteger timeRemaining,
+                    SequenceOf<PropertyValue> listOfValues) {
+
+                System.out.println("\n🔔 COV NOTIFICATION RECEIVED!");
+                System.out.println("From Device: " + initiatingDeviceIdentifier);
+                System.out.println("Object: " + monitoredObjectIdentifier);
+                System.out.println("Subscription ID: " + subscriberProcessIdentifier);
+                System.out.println("Time Remaining: " + timeRemaining + " seconds");
+                System.out.println("Changed Properties:");
+
+                // Parse the changed values
+                for (PropertyValue pv : listOfValues) {
+                    PropertyIdentifier propId = pv.getPropertyIdentifier();
+                    Encodable value = pv.getValue();
+
+                    System.out.println("  " + propId + " = " + value);
+
+                    // Handle specific property types
+                    if (propId.equals(PropertyIdentifier.presentValue)) {
+                        if (value instanceof Real) {
+                            float floatVal = ((Real) value).floatValue();
+                            System.out.println("    → Float value: " + floatVal);
+                        } else if (value instanceof com.serotonin.bacnet4j.type.enumerated.BinaryPV) {
+                            com.serotonin.bacnet4j.type.enumerated.BinaryPV binaryVal =
+                                    (com.serotonin.bacnet4j.type.enumerated.BinaryPV) value;
+                            System.out.println("    → Binary value: " + binaryVal);
+                            System.out.println("    → Is Active: " + binaryVal.equals(
+                                    com.serotonin.bacnet4j.type.enumerated.BinaryPV.active));
+                        } else if (value instanceof UnsignedInteger) {
+                            int intVal = ((UnsignedInteger) value).intValue();
+                            System.out.println("    → Integer value: " + intVal);
+                        }
+                    }
+
+                    if (propId.equals(PropertyIdentifier.statusFlags)) {
+                        System.out.println("    → Status: " + value);
+                    }
+                }
+
+                System.out.println("========================\n");
+
+                // If you need to get the RemoteDevice object
+                try {
+                    RemoteDevice device = local.getRemoteDevice(
+                            initiatingDeviceIdentifier.getInstanceNumber()
+                    ).get();
+                    if (device != null) {
+                        System.out.println("Device Name: " + device.getName());
+                    }
+                } catch (Exception e) {
+                    // Device might not be in cache
+                }
+            }
+        };
+
+        local.getEventHandler().addListener(listener);
+    }
+
+    public void subscribeToObjects(RemoteDevice device) {
+        // Subscribe to multiple objects
+        ObjectIdentifier[] objectsToMonitor = {
+                new ObjectIdentifier(ObjectType.analogInput, 9),
+                new ObjectIdentifier(ObjectType.analogValue, 10)
+                /*new ObjectIdentifier(ObjectType.binaryOutput, 1)
+                new ObjectIdentifier(ObjectType.analogValue, 1)*/
+        };
+
+        int subscriptionId = 1;
+        for (ObjectIdentifier oid : objectsToMonitor) {
+            try {
+                SubscribeCOVRequest covRequest = new SubscribeCOVRequest(
+                        new UnsignedInteger(subscriptionId++),
+                        oid,
+                        Boolean.valueOf(true),      // confirmed notifications
+                        new UnsignedInteger(0)  // lifetime: 0 = infinite
+                );
+
+                local.send(device, covRequest).get();
+                System.out.println("✓ Subscribed to " + oid);
+
+            } catch (BACnetException e) {
+                System.err.println("✗ Failed to subscribe to " + oid + ": " + e.getMessage());
+            }
         }
     }
 }
