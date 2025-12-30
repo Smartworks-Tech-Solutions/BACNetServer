@@ -54,6 +54,7 @@ public class BacnetDeviceDiscovery {
 
 
     private void readObjectListSafe(RemoteDevice d) {
+
         try {
             ObjectIdentifier deviceOid =
                     new ObjectIdentifier(
@@ -61,7 +62,13 @@ public class BacnetDeviceDiscovery {
                             d.getInstanceNumber()
                     );
 
-            // ---- read size ----
+            System.out.println(
+                    "Reading object-list from device "
+                            + d.getInstanceNumber()
+                            + " (MaxAPDU=" + d.getMaxAPDULengthAccepted() + ")"
+            );
+
+            // -------- read array size --------
             ReadPropertyRequest sizeReq =
                     new ReadPropertyRequest(
                             deviceOid,
@@ -69,16 +76,20 @@ public class BacnetDeviceDiscovery {
                             UnsignedInteger.ZERO
                     );
 
-            ServiceFuture future = local.send(d, sizeReq);
-            ReadPropertyAck sizeAck = future.get();
+            ReadPropertyAck sizeAck =
+                    local.send(d, sizeReq).get();
 
             int size =
                     ((UnsignedInteger) sizeAck.getValue()).intValue();
 
-            System.out.println("Object count: " + size);
+            System.out.println("Total objects: " + size);
 
-            // ---- read elements ----
+            int success = 0;
+            int failed = 0;
+
+            // -------- read elements SLOWLY --------
             for (int i = 1; i <= size; i++) {
+
                 try {
                     ReadPropertyRequest itemReq =
                             new ReadPropertyRequest(
@@ -93,24 +104,34 @@ public class BacnetDeviceDiscovery {
                     ObjectIdentifier oid =
                             (ObjectIdentifier) itemAck.getValue();
 
-                    System.out.println("Object: " + oid);
+                    System.out.println("  [" + i + "] " + oid);
+                    success++;
 
                 } catch (BACnetException e) {
-                    e.printStackTrace();
+                    failed++;
                     System.err.println(
-                            "Failed object-list[" + i + "]"
+                            "  [" + i + "] timeout / unsupported"
                     );
                 }
+
+                // 🔥 RATE LIMIT (CRITICAL)
+                Thread.sleep(75);
             }
 
-        } catch (BACnetException e) {
-            e.printStackTrace();
+            System.out.println(
+                    "Object-list complete: success="
+                            + success + ", failed=" + failed
+            );
+
+        } catch (Exception e) {
             System.err.println(
-                    "Object-list failed for device "
+                    "Object-list FAILED for device "
                             + d.getInstanceNumber()
             );
+            e.printStackTrace();
         }
     }
+
 
 
 
