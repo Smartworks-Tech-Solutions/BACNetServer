@@ -24,11 +24,9 @@ import com.serotonin.bacnet4j.type.primitive.UnsignedInteger;
 import com.serotonin.bacnet4j.util.RequestUtils;
 
 import java.net.InetAddress;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 public class BacnetDeviceDiscovery {
 
@@ -103,6 +101,96 @@ public class BacnetDeviceDiscovery {
     }
 
 
+    private void diagnoseDevice(RemoteDevice d) {
+        System.out.println("\n=== DEVICE DIAGNOSTICS ===");
+        System.out.println("Device Instance: " + d.getInstanceNumber());
+
+        ObjectIdentifier deviceOid = new ObjectIdentifier(
+                ObjectType.device,
+                d.getInstanceNumber()
+        );
+
+        // Test 1: Can we read ANY simple property?
+        try {
+            System.out.print("Test 1: Reading device name... ");
+            ReadPropertyRequest req = new ReadPropertyRequest(
+                    deviceOid,
+                    PropertyIdentifier.objectName
+            );
+            ReadPropertyAck ack = local.send(d, req).get();
+            System.out.println("✓ SUCCESS: " + ack.getValue());
+        } catch (Exception e) {
+            System.out.println("✗ FAILED: " + e.getMessage());
+            System.out.println("⚠ Device is not responding to basic requests!");
+            return;
+        }
+
+        // Test 2: Can we read object-list array size?
+        try {
+            System.out.print("Test 2: Reading object-list size... ");
+            ReadPropertyRequest req = new ReadPropertyRequest(
+                    deviceOid,
+                    PropertyIdentifier.objectList,
+                    UnsignedInteger.ZERO
+            );
+            ReadPropertyAck ack = local.send(d, req).get();
+            int size = ((UnsignedInteger) ack.getValue()).intValue();
+            System.out.println("✓ SUCCESS: " + size + " objects");
+        } catch (Exception e) {
+            System.out.println("✗ FAILED: " + e.getMessage());
+            System.out.println("⚠ Device does not support object-list array indexing!");
+            return;
+        }
+
+        // Test 3: Can we read first object?
+        try {
+            System.out.print("Test 3: Reading first object (index 1)... ");
+            ReadPropertyRequest req = new ReadPropertyRequest(
+                    deviceOid,
+                    PropertyIdentifier.objectList,
+                    new UnsignedInteger(1)
+            );
+            ReadPropertyAck ack = local.send(d, req).get();
+            ObjectIdentifier oid = (ObjectIdentifier) ack.getValue();
+            System.out.println("✓ SUCCESS: " + oid);
+        } catch (Exception e) {
+            System.out.println("✗ FAILED: " + e.getMessage());
+            System.out.println("⚠ Individual index reading is not working!");
+            return;
+        }
+
+        // Test 4: Response timing
+        System.out.print("Test 4: Measuring response time for 10 requests... ");
+        long start = System.currentTimeMillis();
+        int successes = 0;
+        for (int i = 1; i <= 10; i++) {
+            try {
+                ReadPropertyRequest req = new ReadPropertyRequest(
+                        deviceOid,
+                        PropertyIdentifier.objectList,
+                        new UnsignedInteger(i)
+                );
+                local.send(d, req).get();
+                successes++;
+            } catch (Exception e) {
+                // Count failures
+            }
+        }
+        long elapsed = System.currentTimeMillis() - start;
+        System.out.println("✓ " + successes + "/10 succeeded in " + elapsed + "ms");
+        System.out.println("   Average: " + (elapsed / 10) + "ms per request");
+
+        if (elapsed / 10 > 1000) {
+            System.out.println("⚠ Device is VERY slow to respond (>1s per request)");
+            System.out.println("   Reading full object list will take a long time.");
+        }
+
+        System.out.println("=== END DIAGNOSTICS ===\n");
+    }
+
+
+
+
     private void readObjectListSafeAnthropic(RemoteDevice d) {
         System.out.println(
                 "Reading object-list from device "
@@ -111,168 +199,67 @@ public class BacnetDeviceDiscovery {
                         + " (MaxAPDU=" + d.getMaxAPDULengthAccepted() + ")"
         );
 
-        // Strategy 1: Try RequestUtils first
         try {
-            System.out.println("Strategy 1: Using RequestUtils.getObjectList()...");
-            SequenceOf<ObjectIdentifier> objectList = RequestUtils.getObjectList(local, d);
-
-            System.out.println("✓ Success! Total objects: " + objectList.size());
-            int i = 1;
-            for (ObjectIdentifier oid : objectList) {
-                System.out.println("  [" + i++ + "] " + oid);
-            }
-            System.out.println("Object-list complete!");
-            return; // Success!
-
-        } catch (BACnetException e) {
-            System.err.println("Strategy 1 failed: " + e.getMessage());
-        }
-
-        // Strategy 2: Try reading entire property at once
-        try {
-            System.out.println("Strategy 2: Reading entire objectList property...");
+            System.out.println("Attempting optimized batch read...");
 
             ObjectIdentifier deviceOid = new ObjectIdentifier(
                     ObjectType.device,
                     d.getInstanceNumber()
             );
 
-            ReadPropertyRequest req = new ReadPropertyRequest(
-                    deviceOid,
-                    PropertyIdentifier.objectList
-                    // No index = read entire property
-            );
+            ExecutorService batchExecutor = Executors.newFixedThreadPool(3);
+            List<Future<ObjectIdentifier>> futures = new ArrayList<>();
 
-            ServiceFuture future = local.send(d, req);
-            ReadPropertyAck ack = (ReadPropertyAck) future.get(); // 30 second timeout
+            int estimatedSize = 200; // Adjust this based on your device
 
-            @SuppressWarnings("unchecked")
-            SequenceOf<ObjectIdentifier> list = (SequenceOf<ObjectIdentifier>) ack.getValue();
+            System.out.println("Attempting parallel batch read for ~" + estimatedSize + " objects...");
 
-            System.out.println("✓ Success! Total objects: " + list.getCount());
-            for (int i = 1; i <= list.getCount(); i++) {
-                ObjectIdentifier oid = list.getBase1(i);
-                System.out.println("  [" + i + "] " + oid);
-            }
-            System.out.println("Object-list complete!");
-            return; // Success!
+            for (int i = 1; i <= estimatedSize; i++) {
+                final int index = i;
 
-        } catch (Exception e) {
-            System.err.println("Strategy 2 failed: " + e.getMessage());
-        }
+                Future<ObjectIdentifier> future = batchExecutor.submit(() -> {
+                    try {
+                        ReadPropertyRequest itemReq = new ReadPropertyRequest(
+                                deviceOid,
+                                PropertyIdentifier.objectList,
+                                new UnsignedInteger(index)
+                        );
 
-        // Strategy 3: Try reading with ReadPropertyMultiple
-        try {
-            System.out.println("Strategy 3: Using ReadPropertyMultiple...");
+                        ReadPropertyAck itemAck = local.send(d, itemReq).get();
+                        return (ObjectIdentifier) itemAck.getValue();
 
-            ObjectIdentifier deviceOid = new ObjectIdentifier(
-                    ObjectType.device,
-                    d.getInstanceNumber()
-            );
-
-            // Read multiple properties at once (sometimes works better)
-            ReadPropertyMultipleRequest rpm =
-                    new ReadPropertyMultipleRequest(
-                            new SequenceOf<>(
-                                    new ReadAccessSpecification(
-                                            deviceOid,
-                                            new SequenceOf<>(
-                                                    new PropertyReference(
-                                                            PropertyIdentifier.objectList
-                                                    )
-                                            )
-                                    )
-                            )
-                    );
-
-            ServiceFuture future = local.send(d, rpm);
-            ReadPropertyMultipleAck rpmAck =
-                    (com.serotonin.bacnet4j.service.acknowledgement.ReadPropertyMultipleAck) future.get();
-
-            // Extract object list from response
-            ReadAccessResult result =
-                    rpmAck.getListOfReadAccessResults().getBase1(1);
-
-            @SuppressWarnings("unchecked")
-            SequenceOf<ObjectIdentifier> list = (SequenceOf<ObjectIdentifier>)
-                    result.getListOfResults().getBase1(1).getReadResult().getDatum();
-
-            System.out.println("✓ Success! Total objects: " + list.getCount());
-            for (int i = 1; i <= list.getCount(); i++) {
-                ObjectIdentifier oid = list.getBase1(i);
-                System.out.println("  [" + i + "] " + oid);
-            }
-            System.out.println("Object-list complete!");
-            return; // Success!
-
-        } catch (Exception e) {
-            System.err.println("Strategy 3 failed: " + e.getMessage());
-        }
-
-        // Strategy 4: Fall back to index-by-index reading (slow but reliable)
-        try {
-            System.out.println("Strategy 4: Reading array index-by-index (slow method)...");
-
-            ObjectIdentifier deviceOid = new ObjectIdentifier(
-                    ObjectType.device,
-                    d.getInstanceNumber()
-            );
-
-            // First, try to get the size
-            ReadPropertyRequest sizeReq = new ReadPropertyRequest(
-                    deviceOid,
-                    PropertyIdentifier.objectList,
-                    UnsignedInteger.ZERO
-            );
-
-            int size;
-            try {
-                ReadPropertyAck sizeAck = local.send(d, sizeReq).get();
-                size = ((UnsignedInteger) sizeAck.getValue()).intValue();
-                System.out.println("Array size: " + size);
-            } catch (Exception e) {
-                // If we can't get size, try a reasonable default
-                System.out.println("Cannot get array size, trying first 500 indices...");
-                size = 500;
-            }
-
-            int success = 0;
-            int consecutiveFails = 0;
-
-            for (int i = 1; i <= size; i++) {
-                try {
-                    ReadPropertyRequest itemReq = new ReadPropertyRequest(
-                            deviceOid,
-                            PropertyIdentifier.objectList,
-                            new UnsignedInteger(i)
-                    );
-
-                    ReadPropertyAck itemAck = local.send(d, itemReq).get();
-                    ObjectIdentifier oid = (ObjectIdentifier) itemAck.getValue();
-
-                    System.out.println("  [" + i + "] " + oid);
-                    success++;
-                    consecutiveFails = 0;
-
-                } catch (Exception e) {
-                    consecutiveFails++;
-                    System.err.println("  [" + i + "] failed");
-
-                    // If we get 10 consecutive failures, probably reached the end
-                    if (consecutiveFails >= 10) {
-                        System.out.println("Stopping after 10 consecutive failures");
-                        break;
+                    } catch (Exception e) {
+                        return null;
                     }
-                }
+                });
 
-                Thread.sleep(100); // Rate limiting
+                futures.add(future);
+
+                if (i % 10 == 0) {
+                    Thread.sleep(50);
+                }
             }
 
-            System.out.println("Object-list complete (partial): " + success + " objects found");
+            // Collect results
+            int success = 0;
+            for (int i = 0; i < futures.size(); i++) {
+                try {
+                    Future<ObjectIdentifier> oid = futures.get(i);
+                    if (oid != null) {
+                        System.out.println("  [" + (i + 1) + "] " + oid);
+                        success++;
+                    }
+                } catch (Exception e) {
+                    // Timeout or failed - skip
+                }
+            }
+
+            batchExecutor.shutdownNow();
+
+            System.out.println("Batch read complete: " + success + " objects found");
 
         } catch (Exception e) {
-            System.err.println("Strategy 4 failed: " + e.getMessage());
-            System.err.println("All strategies failed for device " + d.getInstanceNumber());
+            System.err.println("Batch read failed: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -407,7 +394,11 @@ public class BacnetDeviceDiscovery {
 
                 // ✅ THIS is where readObjectListSafe is used
                 //worker.submit(() -> enumerateByType(d));
-                worker.submit(() -> readObjectListSafeAnthropic(d));
+                worker.submit(() -> {
+                            diagnoseDevice(d);
+                            //readObjectListSafeAnthropic(d);
+                        }
+                );
             }
         };
 
